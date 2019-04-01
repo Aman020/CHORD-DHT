@@ -55,18 +55,19 @@ public class SimpleDhtProvider extends ContentProvider {
     @Override
     public boolean onCreate() {
         // TODO Auto-generated method stub
+       ServerSocket serverSocket  = null;
         try
         {
-            ServerSocket serverSocket = new ServerSocket(SERVER_PORT);
+             serverSocket = new ServerSocket(SERVER_PORT);
             TelephonyManager tel = (TelephonyManager) this.getContext().getSystemService(Context.TELEPHONY_SERVICE);
             final String processId = tel.getLine1Number().substring(tel.getLine1Number().length() - 4);
-            String myPortId =String.valueOf (Integer.parseInt(processId)*2);
+            //String myPortId =String.valueOf (Integer.parseInt(processId)*2);
             myPortId = String.valueOf(Integer.parseInt(processId)*2);
             Log.e("*********","****MY PORT ID*****----"+ Integer.parseInt(processId)*2);
 
             if(myPortId.equals(masterNode))
             {
-                  Node some = InsertSorted(masterNode);
+                  Node some = InsertSorted(masterNode, helper.genHash(masterNode));
 
             }
             else
@@ -93,11 +94,11 @@ public class SimpleDhtProvider extends ContentProvider {
         return false;
     }
 
-    private Node InsertSorted( String newNodePort) {
-        Log.i("In insert Sorted", "Inserting the new node in the ring");
+    private Node InsertSorted(String portId,  String newNodeHshPort) {
+        Log.i("In insert Sorted", "Inserting the new node in the ring-" + portId);
         Node curr;
         Node prev;
-        Node newNode = new Node(newNodePort);
+        Node newNode = new Node(portId);
         boolean ins = false;
         if (myNodeInfo== null)
         {
@@ -110,7 +111,7 @@ public class SimpleDhtProvider extends ContentProvider {
             return newNode;
 
         }
-        else if (Integer.parseInt(newNodePort) < Integer.parseInt(myNodeInfo.portId))
+        else if ((newNodeHshPort.compareTo(myNodeInfo.hashedId)) <0)
             {
                 newNode.predecessor = endNodeInfo;
                 endNodeInfo.successor = newNode;
@@ -120,7 +121,7 @@ public class SimpleDhtProvider extends ContentProvider {
                 return newNode;
 
             }
-        else if (Integer.parseInt(newNodePort) > Integer.parseInt(endNodeInfo.portId))
+        else if ((newNodeHshPort.compareTo(endNodeInfo.portId)) > 0)
             {
                 endNodeInfo.successor = newNode;
                 newNode.predecessor = endNodeInfo;
@@ -134,7 +135,7 @@ public class SimpleDhtProvider extends ContentProvider {
                 Node current = myNodeInfo;
                 Node ptr = myNodeInfo.successor;
                 while (ptr != null) {
-                if (Integer.parseInt(newNodePort) > Integer.parseInt(current.portId) && (Integer.parseInt(newNodePort) < Integer.parseInt(ptr.portId))) {
+                if ((newNodeHshPort.compareTo(current.hashedId) >0) && ((newNodeHshPort.compareTo(ptr.hashedId)) <0)) {
                     current.successor = newNode;
                     newNode.predecessor = current;
                     newNode.successor = ptr;
@@ -157,34 +158,6 @@ public class SimpleDhtProvider extends ContentProvider {
         return null;
     }
 
-
-
-
-//
-//        while(curr != null &&  Integer.valueOf(curr.portId) < Integer.valueOf(newNodePort))
-//        {
-//            prev = curr;
-//            curr = curr.successor;
-//
-//        }
-//        if( prev == null)
-//        {
-//            head = newNode;
-//        }
-//        else
-//        {
-//            prev.successor = newNode;
-//            newNode.predecessor = prev;
-//        }
-//        if( curr != null)
-//        {
-//            curr.predecessor = newNode;
-//            newNode.successor = curr;
-//        }
-//    return newNode;
-//    }
-
-
     private class ServerTask extends AsyncTask<ServerSocket, String, Void>
     {
 
@@ -198,30 +171,28 @@ public class SimpleDhtProvider extends ContentProvider {
                         Socket socket =   serverSockets[0].accept();
                         DataInputStream inputStream = new DataInputStream(socket.getInputStream());
                         String messageFromClient = inputStream.readUTF();
-                        Log.i("At server " + myNodeInfo.portId," Accepting requests");
+                        DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+                        Log.e("Acknowledge to ", messageFromClient.split(":")[1]);
+                        outputStream.writeUTF("Acknowledged");
+                        outputStream.flush();
 
                         String [] messageFromClientTokens = messageFromClient.split(":");
                         if( messageFromClientTokens[0].equals("Join me")) {
                             Log.i("Inside Server-" +myNodeInfo.portId," To add the node in a ring-" + messageFromClientTokens[1]);
-                            Node insertedNode = InsertSorted(messageFromClientTokens[1]);
+                            Node insertedNode = InsertSorted(messageFromClientTokens[1], helper.genHash(messageFromClientTokens[1]));
                             Log.e("Inserted",insertedNode.portId);
 
                             // Inform the joined node about its predecessor and successor
-
-
-                            Node current = myNodeInfo.successor;
-
-
-
-                            DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-                            outputStream.writeUTF("Predecessor:" + insertedNode.predecessor.portId + ":Successor:" + insertedNode.successor.portId);
-                            outputStream.flush();
+                            UpdateLinks();
                         }
                         else if (messageFromClientTokens[0].equals("Update"))
                         {
+                            myNodeInfo = new Node(myPortId);
                             Log.e("At server" + myPortId,"Updating my successors and predecessor");
                             myNodeInfo.predecessor = new Node(messageFromClientTokens[1]);
-                            myNodeInfo.successor = new Node(messageFromClientTokens[3]);
+                            Log.e("Updated predecessor at "+ myPortId, myNodeInfo.predecessor.portId);
+                            myNodeInfo.successor = new Node(messageFromClientTokens[2]);
+                            Log.e("Updated successor at "+ myPortId, myNodeInfo.successor.portId);
 
                         }
                 }
@@ -239,6 +210,31 @@ public class SimpleDhtProvider extends ContentProvider {
         }
     }
 
+
+    private void UpdateLinks()
+    {
+        try {
+
+            Node current = myNodeInfo;
+            Log.e("Current head", current.portId);
+            Log.e("Current end", endNodeInfo.portId);
+            while(current != null && current != endNodeInfo)
+            {
+                if( current.portId.equals(myPortId)) continue;
+                new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Update:" + current.predecessor.portId + ":" + current.successor.portId + ":" + current.portId);
+                current = current.successor;
+            }
+            if(current == endNodeInfo)
+            {new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Update:" + current.predecessor.portId + ":" + current.successor.portId + ":" + current.portId);
+
+            }
+        }
+        catch(Exception ex)
+        {
+            ex.printStackTrace();
+        }
+    }
+
     private class ClientTask extends  AsyncTask<String, Void, Void>{
 
         @Override
@@ -246,21 +242,34 @@ public class SimpleDhtProvider extends ContentProvider {
             try {
                 String message = strings[0];
                 String []messageTokens = strings[0].split(":");
-                String toSendTOMasterPort = messageTokens[2];
-                Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-                        Integer.parseInt(toSendTOMasterPort));
-                DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-                outputStream.writeUTF(message);
-                outputStream.flush();
 
-                DataInputStream inputStream = new DataInputStream(socket.getInputStream());
-                String messageFromServer = inputStream.readUTF();
-                String [] messageFromServerTokens = messageFromServer.split(":");
-                String predecessor = messageFromServerTokens[1];
-                String successor = messageFromServerTokens[3];
-                Log.e(" My successor", successor);
-                Log.e("My Predecessor", predecessor);
-                myNodeInfo = new Node(myPortId, new Node(predecessor),new Node(successor));
+                if(messageTokens.length == 3) {
+                    Log.e("In client"+ myPortId,"Sending message to join me in the ring");
+                    String toSendTOMasterPort = messageTokens[2];
+                    Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+                            Integer.parseInt(toSendTOMasterPort));
+                    DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+                    outputStream.writeUTF(message);
+                    outputStream.flush();
+
+                    DataInputStream inputStream = new DataInputStream(socket.getInputStream());
+                    String serverResponse = inputStream.readUTF();
+                    if(serverResponse != null)
+                    {
+                        Log.e("Acknowledge received -",myPortId );
+                    }
+                }
+                else
+                {
+
+                    String deliveryPort= messageTokens[3];
+                    Log.e("In client"+ myPortId," Sending message to update links at" + deliveryPort);
+                    Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+                            Integer.parseInt(deliveryPort));
+                    DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+                    outputStream.writeUTF(message);
+                    outputStream.flush();
+                }
 
 
 
