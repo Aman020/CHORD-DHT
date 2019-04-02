@@ -1,9 +1,13 @@
 package edu.buffalo.cse.cse486586.simpledht;
 
+import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -20,6 +24,7 @@ import android.content.ContentProvider;
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
+import android.database.MatrixCursor;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.telephony.TelephonyManager;
@@ -37,7 +42,7 @@ public class SimpleDhtProvider extends ContentProvider {
     private static String myPortId;
     private static int noOfNodesJoined =0;
     private  static  final Uri CONTENT_URI = Uri.parse("content://edu.buffalo.cse.cse486586.simpledht.provider");
-
+    private static boolean isSingleNode = true;
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
         // TODO Auto-generated method stub
@@ -53,8 +58,6 @@ public class SimpleDhtProvider extends ContentProvider {
     @Override
     public Uri insert(Uri uri, ContentValues values) {
         // TODO Auto-generated method stub
-
-
         try
         {
             String fileName = values.getAsString("key");
@@ -92,6 +95,7 @@ public class SimpleDhtProvider extends ContentProvider {
 
     private boolean IsCorrectNode(String hashedKey)
     {
+            if (isSingleNode) return true;
 
             if ((myNodeInfo.predecessor.hashedId.compareTo(myNodeInfo.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.hashedId) <= 0 && hashedKey.compareTo(myNodeInfo.predecessor.hashedId) < 0) ||
                     (myNodeInfo.predecessor.hashedId.compareTo(myNodeInfo.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.predecessor.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.hashedId) > 0) ||
@@ -107,7 +111,7 @@ public class SimpleDhtProvider extends ContentProvider {
     public boolean onCreate() {
         // TODO Auto-generated method stub
        ServerSocket serverSocket  = null;
-        try
+      try
         {
              serverSocket = new ServerSocket(SERVER_PORT);
             TelephonyManager tel = (TelephonyManager) this.getContext().getSystemService(Context.TELEPHONY_SERVICE);
@@ -222,10 +226,10 @@ public class SimpleDhtProvider extends ContentProvider {
                         Socket socket =   serverSockets[0].accept();
                         DataInputStream inputStream = new DataInputStream(socket.getInputStream());
                         String messageFromClient = inputStream.readUTF();
-                        DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-                        Log.e("Acknowledge to ", messageFromClient.split(":")[1]);
-                        outputStream.writeUTF("Acknowledged");
-                        outputStream.flush();
+//                        DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+//                        Log.e("Acknowledge to ", messageFromClient.split(":")[1]);
+//                        outputStream.writeUTF("Acknowledged");
+//                        outputStream.flush();
 
                         String [] messageFromClientTokens = messageFromClient.split(":");
                         if( messageFromClientTokens[0].equals("Join me")) {
@@ -240,6 +244,7 @@ public class SimpleDhtProvider extends ContentProvider {
                         }
                         else if (messageFromClientTokens[0].equals("Update"))
                         {
+                            isSingleNode = false;
                             myNodeInfo = new Node(myPortId);
                             Log.e("At server" + myPortId,"Updating my successors and predecessor");
                             myNodeInfo.predecessor = new Node(messageFromClientTokens[1]);
@@ -257,6 +262,23 @@ public class SimpleDhtProvider extends ContentProvider {
                             mContentValues.put("key", keyToInsert);
                             mContentValues.put("value", value);
                             getContext().getContentResolver().insert(CONTENT_URI, mContentValues);
+                        }
+                        else if (messageFromClientTokens[0].equals("Retrieve"))
+                        {
+                            Cursor cursor = getContext().getContentResolver().query(CONTENT_URI,null,"@",null,null);
+                            StringBuilder sb = new StringBuilder();
+                            while ((cursor.moveToNext()))
+                            {
+                                String key = cursor.getString(cursor.getColumnIndex("key"));
+                                String value = cursor.getString(cursor.getColumnIndex("value"));
+                                sb.append(key +"-" + value +":");
+                            }
+
+                            DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+                            outputStream.writeUTF(sb.toString());
+                            outputStream.flush();
+
+
                         }
                 }
             }
@@ -312,12 +334,12 @@ public class SimpleDhtProvider extends ContentProvider {
                     outputStream.writeUTF(message);
                     outputStream.flush();
 
-                    DataInputStream inputStream = new DataInputStream(socket.getInputStream());
-                    String serverResponse = inputStream.readUTF();
-                    if(serverResponse != null)
-                    {
-                        Log.e("Acknowledge received -",myPortId );
-                    }
+//                    DataInputStream inputStream = new DataInputStream(socket.getInputStream());
+//                    String serverResponse = inputStream.readUTF();
+//                    if(serverResponse != null)
+//                    {
+//                        Log.e("Acknowledge received -",myPortId );
+//                    }
                 }
                 else if( messageTokens.length == 5)
                 {
@@ -358,10 +380,135 @@ public class SimpleDhtProvider extends ContentProvider {
     @Override
     public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs,
             String sortOrder) {
+        Log.e("Inside","Query-----");
         // TODO Auto-generated method stub
+        MatrixCursor cursor;
+       try {
+           if (selection.equals("@")) {
+               return GetLocalKeys();
+           }
+           else if (selection.equals("*")) {
+               if(isSingleNode) {
+                Log.e("In query", "ITS A SINGLE NODE");
+                  return  GetLocalKeys();
+               }
+               Log.e("Inside query", " **");
+               return RetrieveAllKeys();
+
+           }
+           else
+           {
+               ReturnSingleKey(selection);
+           }
+
+       }catch(Exception ex)
+       {
+           Log.e("In query","Someting went wrong");
+           ex.printStackTrace();
+       }
         return null;
     }
 
+
+    private MatrixCursor GetLocalKeys() {
+        Log.e("Inside query"," @ running");
+        MatrixCursor cursor = new MatrixCursor(new String[]{"key", "value"});
+        File dir = getContext().getFilesDir();
+
+        File[] files = dir.listFiles();
+        Log.e("No of files","" +files.length );
+        try {
+            for (File file : files) {
+                if (file.isFile()) {
+
+                    String key = file.getName();
+                 //   Log.e("Inside query", "searching for file-" + key);
+                    // Creating a stream object. Various other alternate byte/character streams can be used to read and write the data.
+                    BufferedReader inputstream = new BufferedReader(new InputStreamReader(getContext().openFileInput(key)));
+                    String value = inputstream.readLine();
+                    Log.e("Key value-", key + "---" + value);
+                    cursor.addRow(new String[]{key, value});
+
+                }
+            }
+
+            return cursor;
+        }catch (Exception ex)
+        {
+            Log.e("In GetLocalKeys", "Something went wrong");
+        }
+        return null;
+    }
+
+    private MatrixCursor RetrieveAllKeys()
+    {
+        MatrixCursor cursor;
+        try
+        {
+
+            cursor = GetLocalKeys();
+
+            Node current = myNodeInfo.successor;
+            while(current != null)
+            {
+                if( current == myNodeInfo) break;
+                String toSendTOMasterPort = current.portId;
+                    Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+                            Integer.parseInt(toSendTOMasterPort));
+                    DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+                    outputStream.writeUTF("Retrieve:"+myPortId);
+                    outputStream.flush();
+
+                    DataInputStream inputStream = new DataInputStream(socket.getInputStream());
+                    String serverResponse = inputStream.readUTF();
+                    String [] serverResponseTokens = serverResponse.split(":");
+                    for(String keyValue: serverResponseTokens)
+                    {
+                        String [] keyValuePair = keyValue.split("-");
+                        cursor.addRow( new String []{keyValuePair[0], keyValuePair[1]});
+
+                    }
+
+            }
+
+     }catch (Exception ex)
+        {
+            Log.e("In RetrieveKeys","Something went wrong");
+            ex.printStackTrace();
+        }
+        return null;
+    }
+    private MatrixCursor ReturnSingleKey(String selection)
+    {
+        MatrixCursor matrixCursor = new MatrixCursor(new String[]{"key", "value"});
+
+        try {
+
+        if( IsCorrectNode(helper.genHash(selection))) {
+
+
+            FileInputStream inputstream = getContext().openFileInput(selection);
+            int res = 0;
+            // creating an object of StringBuilder to efficiently append the data which is read using read() function. Read() function returns a byte and hence we use while loop to read all the bytes. It returns -1 if its empty.
+            StringBuilder sb = new StringBuilder();
+            while ((res = inputstream.read()) != -1) {
+                sb.append((char) res);
+
+            }
+            matrixCursor.addRow(new String[]{selection, sb.toString()});
+            inputstream.close();
+        }
+        else
+        {
+
+        }
+
+        }catch (Exception ex)
+        {
+            ex.printStackTrace();
+        }
+        return matrixCursor;
+    }
     @Override
     public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs) {
         // TODO Auto-generated method stub
