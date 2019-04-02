@@ -2,6 +2,8 @@ package edu.buffalo.cse.cse486586.simpledht;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -29,10 +31,11 @@ public class SimpleDhtProvider extends ContentProvider {
     private final static String masterNode = "11108";
     private static List<Node> joinedNodes = new LinkedList<Node>();
     private final static int SERVER_PORT = 10000;
+    private Node head;
     private  Node myNodeInfo ;
     private  Node endNodeInfo;
     private static String myPortId;
-
+    private static int noOfNodesJoined =0;
 
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
@@ -49,7 +52,37 @@ public class SimpleDhtProvider extends ContentProvider {
     @Override
     public Uri insert(Uri uri, ContentValues values) {
         // TODO Auto-generated method stub
-        return null;
+
+        FileOutputStream outputStream = null;
+        try
+        {
+            String fileName = values.getAsString("key");
+            String value = values.getAsString("value");
+            if( (fileName != null) && (value != null)) {
+                outputStream = getContext().openFileOutput(fileName, Context.MODE_PRIVATE);
+                outputStream.write(value.getBytes());
+                outputStream.flush();
+                outputStream.close();
+            }
+            else return null;
+        }
+        catch(IOException io)
+        {
+            io.printStackTrace();
+        }
+        catch(Exception ex)
+        {
+            ex.printStackTrace();
+        }
+        finally {
+//            outputStream.close();
+        }
+
+        return uri;
+
+
+
+
     }
 
     @Override
@@ -67,7 +100,7 @@ public class SimpleDhtProvider extends ContentProvider {
 
             if(myPortId.equals(masterNode))
             {
-                  Node some = InsertSorted(masterNode, helper.genHash(masterNode));
+                  myNodeInfo = InsertSorted(masterNode, helper.genHash(masterNode));
 
             }
             else
@@ -100,24 +133,24 @@ public class SimpleDhtProvider extends ContentProvider {
         Node prev;
         Node newNode = new Node(portId);
         boolean ins = false;
-        if (myNodeInfo== null)
+        if (head== null)
         {
             newNode.successor = null;
             newNode.predecessor = null;
-            myNodeInfo = newNode;
+            head = newNode;
             endNodeInfo = newNode;
             //start = newNode;
             //end = start;
             return newNode;
 
         }
-        else if ((newNodeHshPort.compareTo(myNodeInfo.hashedId)) <0)
+        else if ((newNodeHshPort.compareTo(head.hashedId)) <0)
             {
                 newNode.predecessor = endNodeInfo;
                 endNodeInfo.successor = newNode;
-                myNodeInfo.predecessor = newNode;
-                newNode.successor = myNodeInfo;
-                myNodeInfo = newNode;
+                head.predecessor = newNode;
+                newNode.successor = head;
+                head = newNode;
                 return newNode;
 
             }
@@ -125,15 +158,15 @@ public class SimpleDhtProvider extends ContentProvider {
             {
                 endNodeInfo.successor = newNode;
                 newNode.predecessor = endNodeInfo;
-                newNode.successor = myNodeInfo;
-                myNodeInfo.predecessor = newNode;
+                newNode.successor = head;
+                head.predecessor = newNode;
                 endNodeInfo = newNode;
                 return newNode;
             }
         else
             {
-                Node current = myNodeInfo;
-                Node ptr = myNodeInfo.successor;
+                Node current = head;
+                Node ptr = head.successor;
                 while (ptr != null) {
                 if ((newNodeHshPort.compareTo(current.hashedId) >0) && ((newNodeHshPort.compareTo(ptr.hashedId)) <0)) {
                     current.successor = newNode;
@@ -181,9 +214,11 @@ public class SimpleDhtProvider extends ContentProvider {
                             Log.i("Inside Server-" +myNodeInfo.portId," To add the node in a ring-" + messageFromClientTokens[1]);
                             Node insertedNode = InsertSorted(messageFromClientTokens[1], helper.genHash(messageFromClientTokens[1]));
                             Log.e("Inserted",insertedNode.portId);
-
+                            noOfNodesJoined ++;
                             // Inform the joined node about its predecessor and successor
-                            UpdateLinks();
+                            //if( noOfNodesJoined >2) {
+                                UpdateLinks();
+                            //}
                         }
                         else if (messageFromClientTokens[0].equals("Update"))
                         {
@@ -215,19 +250,16 @@ public class SimpleDhtProvider extends ContentProvider {
     {
         try {
 
-            Node current = myNodeInfo;
+            Node current = head;
             Log.e("Current head", current.portId);
             Log.e("Current end", endNodeInfo.portId);
-            while(current != null && current != endNodeInfo)
-            {
-                if( current.portId.equals(myPortId)) continue;
-                new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Update:" + current.predecessor.portId + ":" + current.successor.portId + ":" + current.portId);
-                current = current.successor;
-            }
-            if(current == endNodeInfo)
-            {new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Update:" + current.predecessor.portId + ":" + current.successor.portId + ":" + current.portId);
+           for(int i =0 ; i < noOfNodesJoined;i++) {
+                //if(current.portId.equals(myPortId)) continue;
+               new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, "Update:" + current.predecessor.portId + ":" + current.successor.portId + ":" + current.portId);
+               current = current.successor;
 
-            }
+           }
+
         }
         catch(Exception ex)
         {
