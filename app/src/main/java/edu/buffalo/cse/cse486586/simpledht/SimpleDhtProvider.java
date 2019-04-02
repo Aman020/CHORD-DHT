@@ -36,6 +36,7 @@ public class SimpleDhtProvider extends ContentProvider {
     private  Node endNodeInfo;
     private static String myPortId;
     private static int noOfNodesJoined =0;
+    private  static  final Uri CONTENT_URI = Uri.parse("content://edu.buffalo.cse.cse486586.simpledht.provider");
 
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
@@ -53,18 +54,24 @@ public class SimpleDhtProvider extends ContentProvider {
     public Uri insert(Uri uri, ContentValues values) {
         // TODO Auto-generated method stub
 
-        FileOutputStream outputStream = null;
+
         try
         {
             String fileName = values.getAsString("key");
             String value = values.getAsString("value");
-            if( (fileName != null) && (value != null)) {
+            String hashedKey = helper.genHash(fileName);
+            if (IsCorrectNode(hashedKey))
+            {   FileOutputStream outputStream = null;
                 outputStream = getContext().openFileOutput(fileName, Context.MODE_PRIVATE);
                 outputStream.write(value.getBytes());
                 outputStream.flush();
                 outputStream.close();
             }
-            else return null;
+            else
+            {
+                String passingMessage = "Insert:"+ fileName+":" + value +":" +myNodeInfo.successor.portId + ":" + myNodeInfo.portId;
+                new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, passingMessage);
+            }
         }
         catch(IOException io)
         {
@@ -80,9 +87,20 @@ public class SimpleDhtProvider extends ContentProvider {
 
         return uri;
 
+    }
 
 
+    private boolean IsCorrectNode(String hashedKey)
+    {
 
+            if ((myNodeInfo.predecessor.hashedId.compareTo(myNodeInfo.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.hashedId) <= 0 && hashedKey.compareTo(myNodeInfo.predecessor.hashedId) < 0) ||
+                    (myNodeInfo.predecessor.hashedId.compareTo(myNodeInfo.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.predecessor.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.hashedId) > 0) ||
+                    (hashedKey.compareTo(myNodeInfo.predecessor.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.hashedId) <= 0))
+            {
+                return true;
+
+            }
+            return false;
     }
 
     @Override
@@ -230,6 +248,16 @@ public class SimpleDhtProvider extends ContentProvider {
                             Log.e("Updated successor at "+ myPortId, myNodeInfo.successor.portId);
 
                         }
+                        else if (messageFromClientTokens[0].equals("Insert"))
+                        {
+                            String keyToInsert = messageFromClientTokens[1];
+                            String value = messageFromClientTokens[2];
+
+                            ContentValues mContentValues = new ContentValues();
+                            mContentValues.put("key", keyToInsert);
+                            mContentValues.put("value", value);
+                            getContext().getContentResolver().insert(CONTENT_URI, mContentValues);
+                        }
                 }
             }
             catch(Exception ex)
@@ -291,6 +319,17 @@ public class SimpleDhtProvider extends ContentProvider {
                         Log.e("Acknowledge received -",myPortId );
                     }
                 }
+                else if( messageTokens.length == 5)
+                {
+                    String successorPort = messageTokens[3];
+                    Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+                            Integer.parseInt(successorPort));
+                    DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+                    outputStream.writeUTF(message);
+                    outputStream.flush();
+
+                }
+
                 else
                 {
 
