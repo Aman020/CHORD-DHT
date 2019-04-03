@@ -34,7 +34,7 @@ public class SimpleDhtProvider extends ContentProvider {
 
     Helper helper = new Helper();
     private final static String masterNode = "11108";
-    private static List<Node> joinedNodes = new LinkedList<Node>();
+    private static List<Node> joinedNodes = new ArrayList<Node>();
     private final static int SERVER_PORT = 10000;
     private Node head;
     private  Node myNodeInfo ;
@@ -43,6 +43,10 @@ public class SimpleDhtProvider extends ContentProvider {
     private static int noOfNodesJoined =0;
     private  static  final Uri CONTENT_URI = Uri.parse("content://edu.buffalo.cse.cse486586.simpledht.provider");
     private static boolean isSingleNode = true;
+    private  MatrixCursor singleKeyResult;
+    private static boolean isResultFound = false;
+    private static  boolean isAllQueryResult=false;
+    private MatrixCursor starKeyResult;
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
         // TODO Auto-generated method stub
@@ -60,11 +64,16 @@ public class SimpleDhtProvider extends ContentProvider {
         // TODO Auto-generated method stub
         try
         {
+            Log.e("In Insert","Calling insert");
             String fileName = values.getAsString("key");
             String value = values.getAsString("value");
             String hashedKey = helper.genHash(fileName);
+            Log.e("INSERT", "KEY TO INSERT"+ fileName);
+            Log.e("INSERT", "VALUE TO INSERT" + value);
             if (IsCorrectNode(hashedKey))
-            {   FileOutputStream outputStream = null;
+            {
+                Log.e("INSERT- "+ myPortId,"Inserting -" + fileName +"-" + value);
+                FileOutputStream outputStream = null;
                 outputStream = getContext().openFileOutput(fileName, Context.MODE_PRIVATE);
                 outputStream.write(value.getBytes());
                 outputStream.flush();
@@ -72,7 +81,7 @@ public class SimpleDhtProvider extends ContentProvider {
             }
             else
             {
-                String passingMessage = "Insert:"+ fileName+":" + value +":" +myNodeInfo.successor.portId + ":" + myNodeInfo.portId;
+                String passingMessage = "Insert:"+ fileName+ "@@" + value +":" +myNodeInfo.portId + ":" +myNodeInfo.successor.portId ;
                 new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, passingMessage);
             }
         }
@@ -97,14 +106,15 @@ public class SimpleDhtProvider extends ContentProvider {
     {
             if (isSingleNode) return true;
 
-            if ((myNodeInfo.predecessor.hashedId.compareTo(myNodeInfo.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.hashedId) <= 0 && hashedKey.compareTo(myNodeInfo.predecessor.hashedId) < 0) ||
-                    (myNodeInfo.predecessor.hashedId.compareTo(myNodeInfo.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.predecessor.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.hashedId) > 0) ||
-                    (hashedKey.compareTo(myNodeInfo.predecessor.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.hashedId) <= 0))
+            if (myNodeInfo.predecessor.hashedId.compareTo(myNodeInfo.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.hashedId) <= 0 && hashedKey.compareTo(myNodeInfo.predecessor.hashedId) < 0 ||
+                    myNodeInfo.predecessor.hashedId.compareTo(myNodeInfo.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.predecessor.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.hashedId) > 0||
+                    hashedKey.compareTo(myNodeInfo.predecessor.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.hashedId) <= 0)
             {
                 return true;
 
             }
             return false;
+
     }
 
     @Override
@@ -118,18 +128,21 @@ public class SimpleDhtProvider extends ContentProvider {
             final String processId = tel.getLine1Number().substring(tel.getLine1Number().length() - 4);
             //String myPortId =String.valueOf (Integer.parseInt(processId)*2);
             myPortId = String.valueOf(Integer.parseInt(processId)*2);
+
             Log.e("*********","****MY PORT ID*****----"+ Integer.parseInt(processId)*2);
 
             if(myPortId.equals(masterNode))
             {
-                  myNodeInfo = InsertSorted(masterNode, helper.genHash(masterNode));
+                 // myNodeInfo = InsertSorted(myPortId, helper.genHash(String.valueOf(Integer.parseInt(myPortId)/2)));
+                    myNodeInfo = new Node(myPortId,String.valueOf(Integer.parseInt(myPortId)/2));
+                    joinedNodes.add(myNodeInfo);
 
             }
             else
             {
                 // Let master node know that I am a new node willing to join the ring
                 try {
-                    new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Join me:" + myPortId + ":" + masterNode);
+                    new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Join me:" + myPortId + ":" + "dummy:" + masterNode);
                 }
                 catch( Exception e)
                 {
@@ -153,7 +166,7 @@ public class SimpleDhtProvider extends ContentProvider {
         Log.i("In insert Sorted", "Inserting the new node in the ring-" + portId);
         Node curr;
         Node prev;
-        Node newNode = new Node(portId);
+        Node newNode = new Node(portId, String.valueOf(Integer.parseInt(portId)/2));
         boolean ins = false;
         if (head== null)
         {
@@ -226,45 +239,51 @@ public class SimpleDhtProvider extends ContentProvider {
                         Socket socket =   serverSockets[0].accept();
                         DataInputStream inputStream = new DataInputStream(socket.getInputStream());
                         String messageFromClient = inputStream.readUTF();
-//                        DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-//                        Log.e("Acknowledge to ", messageFromClient.split(":")[1]);
-//                        outputStream.writeUTF("Acknowledged");
-//                        outputStream.flush();
-
                         String [] messageFromClientTokens = messageFromClient.split(":");
                         if( messageFromClientTokens[0].equals("Join me")) {
                             Log.i("Inside Server-" +myNodeInfo.portId," To add the node in a ring-" + messageFromClientTokens[1]);
-                            Node insertedNode = InsertSorted(messageFromClientTokens[1], helper.genHash(messageFromClientTokens[1]));
-                            Log.e("Inserted",insertedNode.portId);
+                            //Node insertedNode = InsertSorted(messageFromClientTokens[1], helper.genHash(String.valueOf(Integer.parseInt(messageFromClientTokens[1])/2)));
+                            String toBeJoinedPort = messageFromClientTokens[1];
+                            String toBeJoinedNodeId =String.valueOf(Integer.parseInt(messageFromClientTokens[1])/2);
+                            Node newNode = new Node(toBeJoinedPort,toBeJoinedNodeId);
+                            joinedNodes.add(newNode);
+                            Collections.sort(joinedNodes, new NodeCompare());
+                            Log.e("Inserted",toBeJoinedPort);
+                            isSingleNode = false;
                             noOfNodesJoined ++;
-                            // Inform the joined node about its predecessor and successor
-                            //if( noOfNodesJoined >2) {
-                                UpdateLinks();
-                            //}
+                            UpdateLinks();
+
                         }
-                        else if (messageFromClientTokens[0].equals("Update"))
+                      else if (messageFromClientTokens[0].equals("Update"))
                         {
                             isSingleNode = false;
-                            myNodeInfo = new Node(myPortId);
+                            myNodeInfo = new Node(myPortId, String.valueOf(Integer.parseInt(myPortId)/2));
                             Log.e("At server" + myPortId,"Updating my successors and predecessor");
-                            myNodeInfo.predecessor = new Node(messageFromClientTokens[1]);
+                            myNodeInfo.predecessor = new Node(messageFromClientTokens[1], String.valueOf(Integer.parseInt(messageFromClientTokens[1])/2));
                             Log.e("Updated predecessor at "+ myPortId, myNodeInfo.predecessor.portId);
-                            myNodeInfo.successor = new Node(messageFromClientTokens[2]);
+                            myNodeInfo.successor = new Node(messageFromClientTokens[2],String.valueOf(Integer.parseInt(messageFromClientTokens[2])/2));
                             Log.e("Updated successor at "+ myPortId, myNodeInfo.successor.portId);
 
                         }
                         else if (messageFromClientTokens[0].equals("Insert"))
                         {
-                            String keyToInsert = messageFromClientTokens[1];
-                            String value = messageFromClientTokens[2];
+                            Log.e("In server to insert", "received key as"+ messageFromClientTokens[1] );
+                            String[] keyValueToInsert = messageFromClientTokens[1].split("@@");
+                            String keyToInsert = keyValueToInsert[0];
+                            String value = keyValueToInsert[1];
 
-                            ContentValues mContentValues = new ContentValues();
-                            mContentValues.put("key", keyToInsert);
-                            mContentValues.put("value", value);
-                            getContext().getContentResolver().insert(CONTENT_URI, mContentValues);
+                            ContentValues contentValues = new ContentValues();
+                            contentValues.put("key", keyToInsert);
+                            contentValues.put("value", value);
+                            getContext().getContentResolver().insert(CONTENT_URI, contentValues);
                         }
                         else if (messageFromClientTokens[0].equals("Retrieve"))
                         {
+                            if(messageFromClientTokens[1].equals(myPortId) )
+                            {
+                                Log.e("In server" + myPortId,"Retrieved all the keys and values");
+                                isAllQueryResult = true;
+                            }
                             Cursor cursor = getContext().getContentResolver().query(CONTENT_URI,null,"@",null,null);
                             StringBuilder sb = new StringBuilder();
                             while ((cursor.moveToNext()))
@@ -274,22 +293,32 @@ public class SimpleDhtProvider extends ContentProvider {
                                 sb.append(key +"-" + value +":");
                             }
 
-                            DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-                            outputStream.writeUTF(sb.toString());
-                            outputStream.flush();
 
 
                         }
-                }
+                        else if(messageFromClientTokens[0].equals("Check Key") )
+                        {
+                            String whoWantsKey = messageFromClientTokens[2];
+                             ReturnSingleKey(messageFromClientTokens[1], whoWantsKey);
+
+                        }
+                        else if(messageFromClientTokens[0].equals("Found Key") )
+                        {
+                            singleKeyResult = new MatrixCursor(new String[]{"key","value"});
+                            singleKeyResult.addRow( new String[]{messageFromClientTokens[1],messageFromClientTokens[2]});
+                            Log.e("Inside server -"+ myPortId, "Key Found");
+                            isResultFound = true;
+
+                        }
+
+
+                    }
             }
             catch(Exception ex)
             {
                 Log.e("In server", " Something went wrong in the server code");
                 ex.printStackTrace();
             }
-
-
-
 
             return null;
         }
@@ -300,14 +329,35 @@ public class SimpleDhtProvider extends ContentProvider {
     {
         try {
 
-            Node current = head;
-            Log.e("Current head", current.portId);
-            Log.e("Current end", endNodeInfo.portId);
-           for(int i =0 ; i < noOfNodesJoined;i++) {
-                //if(current.portId.equals(myPortId)) continue;
-               new ClientTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, "Update:" + current.predecessor.portId + ":" + current.successor.portId + ":" + current.portId);
-               current = current.successor;
+//            Node current = head;
+//            Log.e("Current head", current.portId);
+//            Log.e("Current end", endNodeInfo.portId);
+//           for(int i =0 ; i <= noOfNodesJoined;i++) {
+//               if( current.portId.equals(myPortId)) continue;
+//                //if(current.portId.equals(myPortId)) continue;
+//               Log.e("In update Links", "Current Port-" + current.portId +"- current successor id" + current.successor.portId);
+//               new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Update:" + current.predecessor.portId  + ":" + current.successor.portId + ":" + current.portId);
+//               current = current.successor;
 
+
+            for(int i =0 ; i < joinedNodes.size();i++)
+            {
+                    String destinationPort = joinedNodes.get(i).portId;
+                    String successorPort;
+                    String predecessorPort;
+                    if (i == 0) {
+                        predecessorPort = joinedNodes.get(joinedNodes.size()-1).portId;
+                    } else {
+                        predecessorPort = joinedNodes.get(i-1).portId;
+                    }
+                    if (i == joinedNodes.size() - 1) {
+                        successorPort =joinedNodes.get(0).portId;
+                    } else {
+                        successorPort = joinedNodes.get(i+1).portId;
+                    }
+
+                Log.e("Sending message to" + destinationPort,"Predecessor -" + predecessorPort + "- Successor" + successorPort);
+                new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Update:" + predecessorPort + ":" + successorPort + ":" + destinationPort);
            }
 
         }
@@ -325,43 +375,27 @@ public class SimpleDhtProvider extends ContentProvider {
                 String message = strings[0];
                 String []messageTokens = strings[0].split(":");
 
-                if(messageTokens.length == 3) {
-                    Log.e("In client"+ myPortId,"Sending message to join me in the ring");
-                    String toSendTOMasterPort = messageTokens[2];
+                if( messageTokens[0].equals("Found Key"))
+                {
+                    Log.e("In client"+ myPortId,message);
+                    String toSendTOMasterPort = messageTokens[4];
+                    Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+                            Integer.parseInt(toSendTOMasterPort));
+                    DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+                    outputStream.writeUTF(message);
+                    outputStream.flush();
+                }
+                else {
+                    String toSendTOMasterPort= messageTokens[3];
+
+                    Log.e("In client" + myPortId, message);
+
                     Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
                             Integer.parseInt(toSendTOMasterPort));
                     DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
                     outputStream.writeUTF(message);
                     outputStream.flush();
 
-//                    DataInputStream inputStream = new DataInputStream(socket.getInputStream());
-//                    String serverResponse = inputStream.readUTF();
-//                    if(serverResponse != null)
-//                    {
-//                        Log.e("Acknowledge received -",myPortId );
-//                    }
-                }
-                else if( messageTokens.length == 5)
-                {
-                    String successorPort = messageTokens[3];
-                    Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-                            Integer.parseInt(successorPort));
-                    DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-                    outputStream.writeUTF(message);
-                    outputStream.flush();
-
-                }
-
-                else
-                {
-
-                    String deliveryPort= messageTokens[3];
-                    Log.e("In client"+ myPortId," Sending message to update links at" + deliveryPort);
-                    Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-                            Integer.parseInt(deliveryPort));
-                    DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-                    outputStream.writeUTF(message);
-                    outputStream.flush();
                 }
 
 
@@ -398,7 +432,46 @@ public class SimpleDhtProvider extends ContentProvider {
            }
            else
            {
-               ReturnSingleKey(selection);
+
+               Log.e("Inside query"," RUNNING ELSE PART---- SINGLE KEY QUERY");
+               try {
+
+                   if( IsCorrectNode(helper.genHash(selection))) {
+                       Log.e("Inside query"," SNGLE KEY EXISTS HERE");
+
+                       FileInputStream inputstream = getContext().openFileInput(selection);
+                       int res = 0;
+                       // creating an object of StringBuilder to efficiently append the data which is read using read() function. Read() function returns a byte and hence we use while loop to read all the bytes. It returns -1 if its empty.
+                       StringBuilder sb = new StringBuilder();
+                       while ((res = inputstream.read()) != -1) {
+                           sb.append((char) res);
+
+                       }
+                       MatrixCursor matrixCursor = new MatrixCursor(new String[]{"key", "value"});
+                       matrixCursor.addRow(new String[]{selection, sb.toString()});
+                       inputstream.close();
+                       return  matrixCursor;
+                   }
+                   else
+                   {
+                       //singleKeyResult = new MatrixCursor(new String[]{"key", "value"});
+                       new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Check Key:"+ selection + ":" +myPortId + ":" + myNodeInfo.successor.portId);
+                       isResultFound = false;
+                       Log.e("In query else", " Running the lock now");
+                       while(!isResultFound)
+                       {
+                           Log.e("BLOCKING CALL","BLOCKING CALL");
+                           //wait for result;
+                       }
+                       Log.e("EXIT BLOCKIING CALL","EXIT");
+                       return singleKeyResult;
+
+                   }
+
+               }catch (Exception ex)
+               {
+                   ex.printStackTrace();
+               }
            }
 
        }catch(Exception ex)
@@ -445,31 +518,24 @@ public class SimpleDhtProvider extends ContentProvider {
         MatrixCursor cursor;
         try
         {
+            starKeyResult = new MatrixCursor(new String [] {"key","value"});
+            starKeyResult = GetLocalKeys();
 
-            cursor = GetLocalKeys();
-
-            Node current = myNodeInfo.successor;
-            while(current != null)
-            {
-                if( current == myNodeInfo) break;
-                String toSendTOMasterPort = current.portId;
+                Node current = myNodeInfo;
+                String toSendToPort = current.portId;
                     Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-                            Integer.parseInt(toSendTOMasterPort));
+                            Integer.parseInt(toSendToPort));
                     DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-                    outputStream.writeUTF("Retrieve:"+myPortId);
+                    outputStream.writeUTF("Retrieve:"+ myPortId + "dummy:"+ current.successor.portId);
                     outputStream.flush();
 
-                    DataInputStream inputStream = new DataInputStream(socket.getInputStream());
-                    String serverResponse = inputStream.readUTF();
-                    String [] serverResponseTokens = serverResponse.split(":");
-                    for(String keyValue: serverResponseTokens)
+                    isAllQueryResult = false;
+                    while(!isAllQueryResult)
                     {
-                        String [] keyValuePair = keyValue.split("-");
-                        cursor.addRow( new String []{keyValuePair[0], keyValuePair[1]});
-
+                        Log.e("Blocking Call","*");
                     }
+                    return starKeyResult;
 
-            }
 
      }catch (Exception ex)
         {
@@ -478,14 +544,11 @@ public class SimpleDhtProvider extends ContentProvider {
         }
         return null;
     }
-    private MatrixCursor ReturnSingleKey(String selection)
+    private void ReturnSingleKey(String selection, String whoWantsKey)
     {
-        MatrixCursor matrixCursor = new MatrixCursor(new String[]{"key", "value"});
-
         try {
 
         if( IsCorrectNode(helper.genHash(selection))) {
-
 
             FileInputStream inputstream = getContext().openFileInput(selection);
             int res = 0;
@@ -495,19 +558,22 @@ public class SimpleDhtProvider extends ContentProvider {
                 sb.append((char) res);
 
             }
-            matrixCursor.addRow(new String[]{selection, sb.toString()});
+
+            singleKeyResult = new MatrixCursor(new String[]{"key","value"});
+            singleKeyResult.addRow(new String[]{selection, sb.toString()});
+            new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Found Key:" + selection +":" + sb.toString() +":" + myPortId + ":" + whoWantsKey);
             inputstream.close();
+
         }
         else
         {
-
+            new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Check Key:"+ selection + ":" +myPortId + ":" + myNodeInfo.successor.portId);
         }
-
         }catch (Exception ex)
         {
             ex.printStackTrace();
         }
-        return matrixCursor;
+
     }
     @Override
     public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs) {

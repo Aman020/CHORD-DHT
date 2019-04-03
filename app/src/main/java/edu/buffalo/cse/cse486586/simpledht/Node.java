@@ -7,13 +7,15 @@ import java.util.Comparator;
 public class Node{
     String portId;
     String hashedId;
+    String nodeId;
     Node predecessor;
     Node successor;
-    Node(String portId)
+    Node(String portId, String nodeId)
     {
+        this.nodeId = nodeId;
         this.portId = portId;
         try {
-            hashedId =  new Helper().genHash(portId);
+            hashedId =  new Helper().genHash(nodeId);
         }
         catch(Exception ex)
         {
@@ -36,13 +38,10 @@ public class Node{
 
 
 
-
-
-
 class NodeCompare implements Comparator<Node> {
 
     @Override
     public int compare(Node lhs, Node rhs) {
-        return lhs.portId.compareTo(rhs.portId);
+        return lhs.hashedId.compareTo(rhs.hashedId);
     }
 }
