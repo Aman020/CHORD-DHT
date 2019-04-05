@@ -58,6 +58,7 @@ public class SimpleDhtProvider extends ContentProvider {
                 Log.e("No of files", "" + files.length);
                 for (File file : files) {
                     file.delete();
+
                 }
             }
             else if( selection.equals("*"))
@@ -71,6 +72,7 @@ public class SimpleDhtProvider extends ContentProvider {
                     {
                         isFileAvailable = true;
                         file.delete();
+                        Log.e("In delete at "+ myPortId,"****FILE DELETED****");
                         break;
                     }
                 }
@@ -78,6 +80,7 @@ public class SimpleDhtProvider extends ContentProvider {
                 {
                     Log.e("At delete" + myPortId,"I DONT HAVE THE FILE. REQUESTING--" + myNodeInfo.successor.portId);
                     new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR,"Delete:" + selection + ":" + myPortId + ":" + myNodeInfo.successor.portId);
+
                 }
             }
 
@@ -326,22 +329,26 @@ public class SimpleDhtProvider extends ContentProvider {
                         }
                         else if (messageFromClientTokens[0].equals("Retrieve"))
                         {
-                            if(messageFromClientTokens[1].equals(messageFromClientTokens[3]) )
-                            {
-                                Log.e("In server" + myPortId,"Retrieved all the keys and values");
-                                Log.e("ALl keys -" , messageFromClientTokens[2]);
+                            if(messageFromClientTokens[1].equals(messageFromClientTokens[3]) ) {
+                                Log.e("In server" + myPortId, "Retrieved all the keys and values");
+                                Log.e("ALl keys -", messageFromClientTokens[2]);
 
                                 String allKeyValuePairs = messageFromClientTokens[2];
-                                String [] allKeyValuePairsTokens = allKeyValuePairs.split("@@");
-                                int count =0;
-                                for(String keyValue : allKeyValuePairsTokens)
-                                {
-                                    String []keyAndValue = keyValue.split("-");
-                                    starKeyResult.addRow( new String []{ keyAndValue[0],keyAndValue[1]});
+                                if (allKeyValuePairs.equals("")) {
+                                    isAllQueryResult = true;
+                                } else{
+                                    String[] allKeyValuePairsTokens = allKeyValuePairs.split("@@");
+                                int count = 0;
+
+                                for (String keyValue : allKeyValuePairsTokens) {
+                                    String[] keyAndValue = keyValue.split("-");
+
+                                    starKeyResult.addRow(new String[]{keyAndValue[0], keyAndValue[1]});
                                     count++;
                                 }
-                                Log.e("No of keys retreived",String.valueOf(count));
+                                Log.e("No of keys retreived", String.valueOf(count));
                                 isAllQueryResult = true;
+                            }
                             }
                             else {
                                 StringBuilder sb = new StringBuilder();
@@ -368,6 +375,12 @@ public class SimpleDhtProvider extends ContentProvider {
                             singleKeyResult.addRow( new String[]{messageFromClientTokens[1],messageFromClientTokens[2]});
                             Log.e("Inside server -"+ myPortId, "Key Found");
                             isResultFound = true;
+
+                        }
+                        else if(messageFromClientTokens[0].equals("Delete"))
+                        {
+                            if(!messageFromClientTokens[2].equals(messageFromClientTokens[3]))
+                            getContext().getContentResolver().delete(CONTENT_URI,messageFromClientTokens[1],null);
 
                         }
 
