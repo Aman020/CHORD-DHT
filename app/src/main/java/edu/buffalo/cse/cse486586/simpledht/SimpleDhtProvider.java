@@ -19,6 +19,7 @@ import java.util.Comparator;
 import java.util.Formatter;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 
 import android.content.ContentProvider;
@@ -44,27 +45,22 @@ public class SimpleDhtProvider extends ContentProvider {
     private static int noOfNodesJoined =0;
     private  static  final Uri CONTENT_URI = Uri.parse("content://edu.buffalo.cse.cse486586.simpledht.provider");
     private static boolean isSingleNode = true;
-    private  MatrixCursor singleKeyResult;
-    private static boolean isResultFound = false;
-    private static  boolean isAllQueryResult=false;
+    private MatrixCursor singleKeyResult;
     private MatrixCursor starKeyResult;
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
         try {
+
             File filesDirectory = getContext().getFilesDir();
             File[] files = filesDirectory.listFiles();
 
-            if (selection.equals("@")) {
+            if (selection.equals("@")|| selection.equals("*")) {
                 Log.e("No of files", "" + files.length);
                 for (File file : files) {
                     file.delete();
 
                 }
-            }
-            else if( selection.equals("*"))
-            {
-
-            }
+            }// The below code is a part in plagiarism. Please do not copy.
             else{
                 boolean isFileAvailable = false;
                 for (File file : files){
@@ -177,37 +173,25 @@ public class SimpleDhtProvider extends ContentProvider {
             final String processId = tel.getLine1Number().substring(tel.getLine1Number().length() - 4);
             //String myPortId =String.valueOf (Integer.parseInt(processId)*2);
             myPortId = String.valueOf(Integer.parseInt(processId)*2);
-
+            new ServerTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, serverSocket);
             Log.e("*********","****MY PORT ID*****----"+ Integer.parseInt(processId)*2);
-
             if(myPortId.equals(masterNode))
             {
                  // myNodeInfo = InsertSorted(myPortId, helper.genHash(String.valueOf(Integer.parseInt(myPortId)/2)));
                     myNodeInfo = new Node(myPortId,String.valueOf(Integer.parseInt(myPortId)/2));
                     joinedNodes.add(myNodeInfo);
-
             }
             else
             {
                 // Let master node know that I am a new node willing to join the ring
-                try {
-                    new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Join me:" + myPortId + ":" + "dummy:" + masterNode);
-                }
-                catch( Exception e)
-                {
-                    e.printStackTrace();
-                }
+                new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Join me:" + myPortId + ":" + "dummy:" + masterNode);
             }
-            new ServerTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, serverSocket);
-
         }
         catch(Exception ex)
         {
             Log.e("On Create", " Something went wrong in on create function");
-
             ex.printStackTrace();
         }
-
         return false;
     }
 
@@ -277,14 +261,11 @@ public class SimpleDhtProvider extends ContentProvider {
 
     private class ServerTask extends AsyncTask<ServerSocket, String, Void>
     {
-
         @Override
         protected Void doInBackground(ServerSocket... serverSockets) {
             try
             {
-
                     while (true) {
-
                         Socket socket =   serverSockets[0].accept();
                         DataInputStream inputStream = new DataInputStream(socket.getInputStream());
                         String messageFromClient = inputStream.readUTF();
@@ -295,14 +276,12 @@ public class SimpleDhtProvider extends ContentProvider {
                             String toBeJoinedPort = messageFromClientTokens[1];
                             String toBeJoinedNodeId =String.valueOf(Integer.parseInt(messageFromClientTokens[1])/2);
                             Node newNode = new Node(toBeJoinedPort,toBeJoinedNodeId);
-
                             joinedNodes.add(newNode);
                             Collections.sort(joinedNodes, new NodeCompare());
                             Log.e("Inserted",toBeJoinedPort);
                             isSingleNode = false;
                             noOfNodesJoined ++;
                             UpdateLinks();
-
                         }
                       else if (messageFromClientTokens[0].equals("Update"))
                         {
@@ -321,7 +300,6 @@ public class SimpleDhtProvider extends ContentProvider {
                             String[] keyValueToInsert = messageFromClientTokens[1].split("@@");
                             String keyToInsert = keyValueToInsert[0];
                             String value = keyValueToInsert[1];
-
                             ContentValues contentValues = new ContentValues();
                             contentValues.put("key", keyToInsert);
                             contentValues.put("value", value);
@@ -329,26 +307,33 @@ public class SimpleDhtProvider extends ContentProvider {
                         }
                         else if (messageFromClientTokens[0].equals("Retrieve"))
                         {
-                            if(messageFromClientTokens[1].equals(messageFromClientTokens[3]) ) {
+                            if(messageFromClientTokens[1].equals(messageFromClientTokens[3]) )
+                            {
                                 Log.e("In server" + myPortId, "Retrieved all the keys and values");
                                 Log.e("ALl keys -", messageFromClientTokens[2]);
-
                                 String allKeyValuePairs = messageFromClientTokens[2];
-                                if (allKeyValuePairs.equals("")) {
-                                    isAllQueryResult = true;
-                                } else{
-                                    String[] allKeyValuePairsTokens = allKeyValuePairs.split("@@");
-                                int count = 0;
-
-                                for (String keyValue : allKeyValuePairsTokens) {
-                                    String[] keyAndValue = keyValue.split("-");
-
-                                    starKeyResult.addRow(new String[]{keyAndValue[0], keyAndValue[1]});
-                                    count++;
+                                if (allKeyValuePairs.equals(""))
+                                {
+                                    Log.e("In server retrieve","No files found in any of the avds.");
+                                    synchronized (starKeyResult)
+                                    {
+                                        starKeyResult.notify();
+                                    }
                                 }
-                                Log.e("No of keys retreived", String.valueOf(count));
-                                isAllQueryResult = true;
-                            }
+                                else
+                                    {
+                                    String[] allKeyValuePairsTokens = allKeyValuePairs.split("@@");
+                                    int count = 0;
+                                    for (String keyValue : allKeyValuePairsTokens) {
+                                        String[] keyAndValue = keyValue.split("-");
+                                        starKeyResult.addRow(new String[]{keyAndValue[0], keyAndValue[1]});
+                                        count++;
+                                    }
+                                    Log.e("No of keys retreived", String.valueOf(count));
+                                    synchronized (starKeyResult) {
+                                    starKeyResult.notify(); }
+
+                                    }
                             }
                             else {
                                 StringBuilder sb = new StringBuilder();
@@ -366,26 +351,22 @@ public class SimpleDhtProvider extends ContentProvider {
                             Log.e("In Check Key server at " + myPortId,messageFromClient);
                             String whoWantsKey = messageFromClientTokens[2];
                             Log.e("In Check Key server at " + myPortId,"Requested port" + whoWantsKey);
-                             ReturnSingleKey(messageFromClientTokens[1], whoWantsKey);
+                            ReturnSingleKey(messageFromClientTokens[1], whoWantsKey);
 
                         }
                         else if(messageFromClientTokens[0].equals("Found Key") )
-                        {
-                            singleKeyResult = new MatrixCursor(new String[]{"key","value"});
-                            singleKeyResult.addRow( new String[]{messageFromClientTokens[1],messageFromClientTokens[2]});
+                        {   singleKeyResult.addRow( new String[]{messageFromClientTokens[1],messageFromClientTokens[2]});
+                            synchronized (singleKeyResult)
+                            {
+                                singleKeyResult.notify();
+                            }
                             Log.e("Inside server -"+ myPortId, "Key Found");
-                            isResultFound = true;
-
                         }
                         else if(messageFromClientTokens[0].equals("Delete"))
                         {
                             if(!messageFromClientTokens[2].equals(messageFromClientTokens[3]))
                             getContext().getContentResolver().delete(CONTENT_URI,messageFromClientTokens[1],null);
-
                         }
-
-
-
                     }
             }
             catch(Exception ex)
@@ -393,11 +374,9 @@ public class SimpleDhtProvider extends ContentProvider {
                 Log.e("In server", " Something went wrong in the server code");
                 ex.printStackTrace();
             }
-
             return null;
         }
     }
-
     private void InformSuccessorToRetrievekeys(StringBuilder alreadyRetreivedKeys,String requestedPort, String successorPort)
     {
         Log.e("In InformSuccessorKeys","Pinging successor to retireve keys. Successor-" + successorPort);
@@ -418,27 +397,26 @@ public class SimpleDhtProvider extends ContentProvider {
 //               Log.e("In update Links", "Current Port-" + current.portId +"- current successor id" + current.successor.portId);
 //               new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Update:" + current.predecessor.portId  + ":" + current.successor.portId + ":" + current.portId);
 //               current = current.successor;
-
-
             for(int i =0 ; i < joinedNodes.size();i++)
             {
-                    String destinationPort = joinedNodes.get(i).portId;
-                    String successorPort;
-                    String predecessorPort;
-                    if (i == 0) {
-                        predecessorPort = joinedNodes.get(joinedNodes.size()-1).portId;
-                    } else {
-                        predecessorPort = joinedNodes.get(i-1).portId;
-                    }
-                    if (i == joinedNodes.size() - 1) {
-                        successorPort =joinedNodes.get(0).portId;
-                    } else {
-                        successorPort = joinedNodes.get(i+1).portId;
-                    }
+                String destinationPort = joinedNodes.get(i).portId;
+                String successorPort;
+                String predecessorPort;
+                if (i == 0) {
+                    predecessorPort = joinedNodes.get(joinedNodes.size()-1).portId;
+                } else {
+                    predecessorPort = joinedNodes.get(i-1).portId;
+                }
+                if (i == joinedNodes.size() - 1) {
+                    successorPort =joinedNodes.get(0).portId;
+                } else {
+                    successorPort = joinedNodes.get(i+1).portId;
+                }
 
                 Log.e("Sending message to" + destinationPort,"Predecessor -" + predecessorPort + "- Successor" + successorPort);
                 new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Update:" + predecessorPort + ":" + successorPort + ":" + destinationPort);
-           }
+            }
+
 
         }
         catch(Exception ex)
@@ -467,9 +445,7 @@ public class SimpleDhtProvider extends ContentProvider {
                 }
                 else {
                     String toSendTOMasterPort= messageTokens[3];
-
                     Log.e("In client" + myPortId, message);
-
                     Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
                             Integer.parseInt(toSendTOMasterPort));
                     DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
@@ -477,27 +453,21 @@ public class SimpleDhtProvider extends ContentProvider {
                     outputStream.flush();
 
                 }
-
-
-
             }catch(Exception ex)
             {
                 Log.e("In client", " Something went wrong in client Async Task");
                 ex.printStackTrace();
             }
-
-
-
             return null;
         }
     }
     @Override
-    public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs,
-            String sortOrder) {
+    public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder) {
+
         Log.e("Inside","Query-----");
         // TODO Auto-generated method stub
         MatrixCursor cursor;
-       try {
+        try {
            if (selection.equals("@")) {
                return GetLocalKeys();
            }
@@ -536,16 +506,15 @@ public class SimpleDhtProvider extends ContentProvider {
                    {
                        //singleKeyResult = new MatrixCursor(new String[]{"key", "value"});
                        new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Check Key:"+ selection + ":" +myPortId + ":" + myNodeInfo.successor.portId);
-                       isResultFound = false;
-                       Log.e("In query else", " Running the lock now");
-                       while(!isResultFound)
-                       {
-                           Log.e("BLOCKING CALL","BLOCKING CALL");
-                           //wait for result;
-                       }
-                       Log.e("EXIT BLOCKIING CALL","EXIT");
-                       return singleKeyResult;
 
+                       Log.e("In query else", " Running the lock now");
+
+                       singleKeyResult = new MatrixCursor(new String[]{"key","value"});
+                       synchronized (singleKeyResult)
+                       {
+                           singleKeyResult.wait();
+                       }
+                        return singleKeyResult;
                    }
 
                }catch (Exception ex)
@@ -591,29 +560,25 @@ public class SimpleDhtProvider extends ContentProvider {
 
     private MatrixCursor RetrieveAllKeys()
     {
-        MatrixCursor cursor;
         try
         {
             starKeyResult = new MatrixCursor(new String [] {"key","value"});
             starKeyResult = GetLocalKeys();
-
                 Node current = myNodeInfo;
                 String toSendToPort = current.successor.portId;
-                    Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-                            Integer.parseInt(toSendToPort));
-                    DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-
-
-                    outputStream.writeUTF("Retrieve:"+ myPortId +":" + KeyValuePairString(starKeyResult) +":" + current.successor.portId);
-                    Log.e("In retreive all keys","Retrieve:"+ myPortId +":" + KeyValuePairString(starKeyResult) +":" + current.successor.portId);
-                    outputStream.flush();
-
-                    isAllQueryResult = false;
-                    while(!isAllQueryResult)
+//                    Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+//                            Integer.parseInt(toSendToPort));
+//                    DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+//                    outputStream.writeUTF("Retrieve:"+ myPortId +":" + KeyValuePairString(starKeyResult) +":" + current.successor.portId);
+//                    Log.e("In retreive all keys","Retrieve:"+ myPortId +":" + KeyValuePairString(starKeyResult) +":" + current.successor.portId);
+//                    outputStream.flush();
+                    new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR,"Retrieve:"+ myPortId +":" + KeyValuePairString(starKeyResult) +":" + current.successor.portId);
+                    synchronized(starKeyResult)
                     {
-                        Log.e("Blocking Call","*");
+                        starKeyResult.wait();
+
                     }
-                    return starKeyResult;
+                      return starKeyResult;
 
 
      }catch (Exception ex)
@@ -672,15 +637,5 @@ public class SimpleDhtProvider extends ContentProvider {
     public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs) {
         // TODO Auto-generated method stub
         return 0;
-    }
-
-    private String genHash(String input) throws NoSuchAlgorithmException {
-        MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
-        byte[] sha1Hash = sha1.digest(input.getBytes());
-        Formatter formatter = new Formatter();
-        for (byte b : sha1Hash) {
-            formatter.format("%02x", b);
-        }
-        return formatter.toString();
     }
 }
