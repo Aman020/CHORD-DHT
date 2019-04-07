@@ -68,10 +68,10 @@ public class OnTestClickListener implements OnClickListener {
 			} else {
 				publishProgress("Query fail\n");
 			}
-			
+
 			return null;
 		}
-		
+
 		protected void onProgressUpdate(String...strings) {
 			mTextView.append(strings[0]);
 

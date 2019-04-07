@@ -186,6 +186,7 @@ public class SimpleDhtProvider extends ContentProvider {
     }
 
     private Node InsertSorted(String portId,  String newNodeHshPort) {
+        //Reference - https://www.geeksforgeeks.org/sorted-insert-for-circular-linked-list/ . Just the structure and how i can insert the element in the moddle of the nodes and make sure its sorted.
         Log.i("In insert Sorted", "Inserting the new node in the ring-" + portId);
         Node curr;
         Node prev;
@@ -255,7 +256,9 @@ public class SimpleDhtProvider extends ContentProvider {
         protected Void doInBackground(ServerSocket... serverSockets) {
             try
             {
+                Log.e("At server", myPortId);
                     while (true) {
+
                         Socket socket =   serverSockets[0].accept();
                         DataInputStream inputStream = new DataInputStream(socket.getInputStream());
                         String messageFromClient = inputStream.readUTF();
