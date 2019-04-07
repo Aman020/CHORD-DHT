@@ -24,13 +24,6 @@ public class Node{
         }
 
     }
-    Node(String portId, Node predecessor, Node successor)
-    {
-        this.portId = portId;
-        this.successor = successor;
-        this.predecessor = predecessor;
-
-    }
 
 
 

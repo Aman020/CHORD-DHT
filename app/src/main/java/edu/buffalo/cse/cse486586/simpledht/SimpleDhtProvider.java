@@ -142,23 +142,13 @@ public class SimpleDhtProvider extends ContentProvider {
 
     private boolean IsCorrectNode(String hashedKey)
     {
-            if (isSingleNode) return true;
-
-            if( myNodeInfo.predecessor != null && myNodeInfo.successor !=null) {
-                if (myNodeInfo.predecessor.hashedId.compareTo(myNodeInfo.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.hashedId) <= 0 && hashedKey.compareTo(myNodeInfo.predecessor.hashedId) < 0 ||
-                        myNodeInfo.predecessor.hashedId.compareTo(myNodeInfo.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.predecessor.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.hashedId) > 0 ||
-                        hashedKey.compareTo(myNodeInfo.predecessor.hashedId) > 0 && hashedKey.compareTo(myNodeInfo.hashedId) <= 0) {
-                    return true;
-
-                }
-            }
-            else if(myNodeInfo.predecessor == null && myNodeInfo.successor ==null)
-            {
-                return true;
-
-            }
-            return false;
-
+        if (isSingleNode)
+           return true;
+        if (myNodeInfo.predecessor.hashedId.compareTo(hashedKey) <0 && hashedKey.compareTo(myNodeInfo.hashedId) <= 0)
+            return true;
+        if( myNodeInfo.hashedId.compareTo(myNodeInfo.predecessor.hashedId) <0 && (hashedKey.compareTo(myNodeInfo.hashedId)<=0 || hashedKey.compareTo(myNodeInfo.predecessor.hashedId) >0))
+            return true;
+        return false;
     }
 
     @Override
@@ -364,7 +354,7 @@ public class SimpleDhtProvider extends ContentProvider {
                         }
                         else if(messageFromClientTokens[0].equals("Delete"))
                         {
-                            if(!messageFromClientTokens[2].equals(messageFromClientTokens[3]))
+                            if(!myNodeInfo.portId.equals(messageFromClientTokens[3]))
                             getContext().getContentResolver().delete(CONTENT_URI,messageFromClientTokens[1],null);
                         }
                     }
@@ -397,26 +387,12 @@ public class SimpleDhtProvider extends ContentProvider {
 //               Log.e("In update Links", "Current Port-" + current.portId +"- current successor id" + current.successor.portId);
 //               new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Update:" + current.predecessor.portId  + ":" + current.successor.portId + ":" + current.portId);
 //               current = current.successor;
-            for(int i =0 ; i < joinedNodes.size();i++)
-            {
-                String destinationPort = joinedNodes.get(i).portId;
-                String successorPort;
-                String predecessorPort;
-                if (i == 0) {
-                    predecessorPort = joinedNodes.get(joinedNodes.size()-1).portId;
-                } else {
-                    predecessorPort = joinedNodes.get(i-1).portId;
-                }
-                if (i == joinedNodes.size() - 1) {
-                    successorPort =joinedNodes.get(0).portId;
-                } else {
-                    successorPort = joinedNodes.get(i+1).portId;
-                }
-
-                Log.e("Sending message to" + destinationPort,"Predecessor -" + predecessorPort + "- Successor" + successorPort);
-                new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Update:" + predecessorPort + ":" + successorPort + ":" + destinationPort);
+            for(int i =0 ; i < joinedNodes.size();i++) {
+            String  predecessorPort = i ==0?joinedNodes.get(joinedNodes.size()-1).portId:joinedNodes.get(i-1).portId;
+            String successorPort = i== joinedNodes.size() - 1?joinedNodes.get(0).portId:joinedNodes.get(i+1).portId;
+            Log.e("Sending message to" + joinedNodes.get(i).portId,"Predecessor -" + predecessorPort + "- Successor" + successorPort);
+            new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Update:" + predecessorPort + ":" + successorPort + ":" + joinedNodes.get(i).portId);
             }
-
 
         }
         catch(Exception ex)
@@ -432,27 +408,15 @@ public class SimpleDhtProvider extends ContentProvider {
             try {
                 String message = strings[0];
                 String []messageTokens = strings[0].split(":");
-
-                if( messageTokens[0].equals("Found Key"))
-                {
-                    Log.e("In client"+ myPortId,message);
-                    String toSendTOMasterPort = messageTokens[4];
-                    Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-                            Integer.parseInt(toSendTOMasterPort));
-                    DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-                    outputStream.writeUTF(message);
-                    outputStream.flush();
-                }
-                else {
-                    String toSendTOMasterPort= messageTokens[3];
+                    String toSendPort= messageTokens[3];
                     Log.e("In client" + myPortId, message);
                     Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-                            Integer.parseInt(toSendTOMasterPort));
+                            Integer.parseInt(toSendPort));
                     DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
                     outputStream.writeUTF(message);
                     outputStream.flush();
 
-                }
+
             }catch(Exception ex)
             {
                 Log.e("In client", " Something went wrong in client Async Task");
@@ -482,20 +446,16 @@ public class SimpleDhtProvider extends ContentProvider {
            }
            else
            {
-
                Log.e("Inside query"," RUNNING ELSE PART---- SINGLE KEY QUERY");
                try {
-
                    if( IsCorrectNode(helper.genHash(selection))) {
                        Log.e("Inside query"," SNGLE KEY EXISTS HERE");
-
                        FileInputStream inputstream = getContext().openFileInput(selection);
                        int res = 0;
                        // creating an object of StringBuilder to efficiently append the data which is read using read() function. Read() function returns a byte and hence we use while loop to read all the bytes. It returns -1 if its empty.
                        StringBuilder sb = new StringBuilder();
                        while ((res = inputstream.read()) != -1) {
                            sb.append((char) res);
-
                        }
                        MatrixCursor matrixCursor = new MatrixCursor(new String[]{"key", "value"});
                        matrixCursor.addRow(new String[]{selection, sb.toString()});
@@ -504,16 +464,14 @@ public class SimpleDhtProvider extends ContentProvider {
                    }
                    else
                    {
-                       //singleKeyResult = new MatrixCursor(new String[]{"key", "value"});
-                       new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Check Key:"+ selection + ":" +myPortId + ":" + myNodeInfo.successor.portId);
-
-                       Log.e("In query else", " Running the lock now");
-
                        singleKeyResult = new MatrixCursor(new String[]{"key","value"});
+                       new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Check Key:"+ selection + ":" +myPortId + ":" + myNodeInfo.successor.portId);
+                       Log.e("In query else", " Running the lock now");
                        synchronized (singleKeyResult)
                        {
                            singleKeyResult.wait();
                        }
+                       Log.e("In query", "Thread has been notified to run");
                         return singleKeyResult;
                    }
 
@@ -540,17 +498,14 @@ public class SimpleDhtProvider extends ContentProvider {
         Log.e("No of files","" +files.length );
         try {
             for (File file : files) {
-
                     String key = file.getName();
-                 //   Log.e("Inside query", "searching for file-" + key);
                     // Creating a stream object. Various other alternate byte/character streams can be used to read and write the data.
                     BufferedReader inputstream = new BufferedReader(new InputStreamReader(getContext().openFileInput(key)));
                     String value = inputstream.readLine();
                     Log.e("Key value-", key + "---" + value);
                     cursor.addRow(new String[]{key, value});
             }
-
-            return cursor;
+        return cursor;
         }catch (Exception ex)
         {
             Log.e("In GetLocalKeys", "Something went wrong");
@@ -564,29 +519,17 @@ public class SimpleDhtProvider extends ContentProvider {
         {
             starKeyResult = new MatrixCursor(new String [] {"key","value"});
             starKeyResult = GetLocalKeys();
-                Node current = myNodeInfo;
-                String toSendToPort = current.successor.portId;
-//                    Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-//                            Integer.parseInt(toSendToPort));
-//                    DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-//                    outputStream.writeUTF("Retrieve:"+ myPortId +":" + KeyValuePairString(starKeyResult) +":" + current.successor.portId);
-//                    Log.e("In retreive all keys","Retrieve:"+ myPortId +":" + KeyValuePairString(starKeyResult) +":" + current.successor.portId);
-//                    outputStream.flush();
-                    new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR,"Retrieve:"+ myPortId +":" + KeyValuePairString(starKeyResult) +":" + current.successor.portId);
-                    synchronized(starKeyResult)
-                    {
-                        starKeyResult.wait();
-
-                    }
-                      return starKeyResult;
-
-
-     }catch (Exception ex)
-        {
-            Log.e("In RetrieveKeys","Something went wrong");
-            ex.printStackTrace();
-        }
-        return null;
+            Node current = myNodeInfo;
+            new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR,"Retrieve:"+ myPortId +":" + KeyValuePairString(starKeyResult) +":" + current.successor.portId);
+            synchronized(starKeyResult)
+            { starKeyResult.wait();}
+            Log.e("In query", "Thread has been notified to run");
+                return starKeyResult;
+        }catch (Exception ex)
+            {
+                Log.e("In RetrieveKeys","Something went wrong");
+                ex.printStackTrace();
+            }return null;
     }
 
     private String  KeyValuePairString(Cursor cursor)
@@ -618,7 +561,7 @@ public class SimpleDhtProvider extends ContentProvider {
 
             singleKeyResult = new MatrixCursor(new String[]{"key","value"});
             singleKeyResult.addRow(new String[]{selection, sb.toString()});
-            new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Found Key:" + selection +":" + sb.toString() +":" + myPortId + ":" + whoWantsKey);
+            new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Found Key:" + selection +":" + sb.toString() +":" + whoWantsKey + ":" + myPortId);
             inputstream.close();
 
         }
