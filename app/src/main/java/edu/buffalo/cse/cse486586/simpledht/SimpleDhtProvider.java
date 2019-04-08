@@ -60,6 +60,12 @@ public class SimpleDhtProvider extends ContentProvider {
                     file.delete();
 
                 }
+                if( selection.equals("*"))
+                {
+                    new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR,"Delete:" + selection + ":" + myPortId + ":" + myNodeInfo.successor.portId);
+
+                }
+
             }// The below code is a part in plagiarism. Please do not copy.
             else{
                 boolean isFileAvailable = false;
